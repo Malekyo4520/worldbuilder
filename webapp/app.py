@@ -39,6 +39,7 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 
 REPO_ROOT = Path(__file__).parent.parent
 WORLDS_DIR = REPO_ROOT / "worlds"
+PLAYGROUND_DIR = Path.home() / ".worldbuilder" / "images"
 # Search both repo root (legacy) and worlds/ subdirectory
 PROJECTS_ROOTS = [WORLDS_DIR, REPO_ROOT]
 
@@ -572,16 +573,15 @@ def api_playground_generate():
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
 
-    # Use a shared playground output dir
-    playground_dir = REPO_ROOT / "output" / "playground"
-    playground_dir.mkdir(parents=True, exist_ok=True)
+    # Use ~/.worldbuilder/images/ for playground images
+    PLAYGROUND_DIR.mkdir(parents=True, exist_ok=True)
 
     # Build a slug from the prompt (first few words)
     slug = re.sub(r"[^a-z0-9]+", "-", prompt[:40].lower()).strip("-") or "image"
 
     job = submit_job(
         prompt=prompt,
-        project_dir=REPO_ROOT,
+        project_dir=PLAYGROUND_DIR.parent,
         project_slug="_playground",
         entity_slug=slug,
         entity_name=prompt[:60],
@@ -592,6 +592,7 @@ def api_playground_generate():
         width=body.get("width", DEFAULT_WIDTH),
         height=body.get("height", DEFAULT_HEIGHT),
         style=body.get("style", "photorealistic"),
+        cache_subdir="images",
     )
 
     return jsonify(job)
@@ -600,10 +601,9 @@ def api_playground_generate():
 @app.route("/api/imagegen/playground/images/<filename>")
 def api_serve_playground_image(filename):
     """Serve a playground-generated image."""
-    image_dir = REPO_ROOT / "output" / "images"
-    if not (image_dir / filename).exists():
+    if not (PLAYGROUND_DIR / filename).exists():
         return jsonify({"error": "Image not found"}), 404
-    return send_from_directory(str(image_dir), filename, mimetype="image/png")
+    return send_from_directory(str(PLAYGROUND_DIR), filename, mimetype="image/png")
 
 
 @app.route("/api/imagegen/job/<job_id>")
@@ -670,7 +670,7 @@ def api_check_entity_image(slug, etype, entity_slug):
 def api_serve_image(slug, filename):
     """Serve a generated image from the project's image cache."""
     if slug == "_playground":
-        image_dir = REPO_ROOT / "output" / "images"
+        image_dir = PLAYGROUND_DIR
     else:
         proj = resolve_project_dir(slug)
         image_dir = proj / "output" / "images" if proj else Path("/dev/null")

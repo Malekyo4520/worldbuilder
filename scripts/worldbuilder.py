@@ -4624,6 +4624,355 @@ Flag unresolvable issues for human review.
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# READABILITY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _strip_markdown(text):
+    """Strip markdown formatting to get plain prose for readability scoring."""
+    text = re.sub(r"^#{1,6}\s+.*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"---+", "", text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"_(.+?)_", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"`[^`]+`", "", text)
+    text = re.sub(r"^>\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[-*+]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\d+\.\s+", "", text, flags=re.MULTILINE)
+    return text.strip()
+
+
+def _reading_ease_label(score):
+    """Return a human-readable label for Flesch Reading Ease score."""
+    if score >= 90:
+        return "Very easy (5th grade)"
+    elif score >= 80:
+        return "Easy (6th grade)"
+    elif score >= 70:
+        return "Fairly easy (7th grade)"
+    elif score >= 60:
+        return "Standard (8th-9th grade)"
+    elif score >= 50:
+        return "Fairly difficult (10th-12th grade)"
+    elif score >= 30:
+        return "Difficult (college)"
+    else:
+        return "Very difficult (graduate/professional)"
+
+
+def _target_audience(grade):
+    """Return target audience label from grade level."""
+    if grade <= 6:
+        return "Middle grade / children"
+    elif grade <= 8:
+        return "Young adult / general"
+    elif grade <= 10:
+        return "Adult general / genre fiction"
+    elif grade <= 13:
+        return "Adult literary / advanced"
+    else:
+        return "Academic / professional"
+
+
+def _compute_readability(text):
+    """Compute readability metrics for a block of text. Returns dict or None if too short."""
+    import textstat
+
+    words = text.split()
+    if len(words) < 10:
+        return None
+
+    sentences = textstat.sentence_count(text)
+    if sentences == 0:
+        return None
+
+    syllables = textstat.syllable_count(text)
+    word_count = len(words)
+    char_count = sum(len(w) for w in words)
+
+    return {
+        "fk_grade": textstat.flesch_kincaid_grade(text),
+        "reading_ease": textstat.flesch_reading_ease(text),
+        "gunning_fog": textstat.gunning_fog(text),
+        "coleman_liau": textstat.coleman_liau_index(text),
+        "avg_sentence_len": word_count / max(sentences, 1),
+        "avg_word_len": char_count / max(word_count, 1),
+        "avg_syllables": syllables / max(word_count, 1),
+        "word_count": word_count,
+        "reading_time_min": word_count / 250,
+    }
+
+
+def _split_paragraphs(text):
+    """Split text into paragraphs, filtering out empty and header-only blocks."""
+    raw = re.split(r"\n\s*\n", text)
+    paragraphs = []
+    for p in raw:
+        p = p.strip()
+        if not p:
+            continue
+        if re.match(r"^#{1,6}\s+", p):
+            continue
+        if p == "---":
+            continue
+        paragraphs.append(p)
+    return paragraphs
+
+
+def _split_pages(text, words_per_page=250):
+    """Split text into page-sized chunks (~250 words)."""
+    words = text.split()
+    pages = []
+    for i in range(0, len(words), words_per_page):
+        chunk = " ".join(words[i:i + words_per_page])
+        if chunk.strip():
+            pages.append(chunk)
+    return pages
+
+
+def _find_outliers(values, threshold=1.5):
+    """Return indices of values that deviate > threshold standard deviations from mean."""
+    import statistics
+    if len(values) < 3:
+        return []
+    mu = statistics.mean(values)
+    sd = statistics.stdev(values)
+    if sd == 0:
+        return []
+    outliers = []
+    for i, v in enumerate(values):
+        z = (v - mu) / sd
+        if z > threshold:
+            outliers.append((i, v, mu, sd, "significantly harder"))
+        elif z < -threshold:
+            outliers.append((i, v, mu, sd, "significantly easier"))
+    return outliers
+
+
+def cmd_readability(args):
+    """Analyse prose readability at paragraph, page, chapter, and story level."""
+    try:
+        import textstat
+    except ImportError:
+        print("Error: textstat is required. Install it: uv pip install textstat")
+        sys.exit(1)
+
+    import statistics
+
+    project_dir = find_project(args.project)
+    if not project_dir:
+        print("Error: No project.yaml found.")
+        sys.exit(1)
+
+    config = load_project(project_dir)
+    title = config.get("title", "Untitled")
+    verbose = getattr(args, "verbose", False)
+    include_entities = getattr(args, "entities", False)
+    specific_chapter = getattr(args, "chapter", None)
+
+    print(f"\n📊 Readability Analysis — {title}\n")
+
+    # Collect prose sources
+    stories = {}  # story_name -> [(chapter_title, file_path, prose_text)]
+
+    # 1. Stories in stories/ subdirectories
+    stories_dir = project_dir / "stories"
+    if stories_dir.exists():
+        for story_subdir in sorted(stories_dir.iterdir()):
+            if not story_subdir.is_dir():
+                continue
+            story_name = story_subdir.name
+            chapters = []
+            for f in sorted(story_subdir.glob("*.md")):
+                if f.name.startswith("_"):
+                    continue
+                if specific_chapter and f.name != specific_chapter and f.stem != specific_chapter:
+                    continue
+                meta, body = parse_frontmatter(f)
+                prose = _strip_markdown(body)
+                if not prose.strip():
+                    continue
+                ch_title = (meta or {}).get("name", (meta or {}).get("title", f.stem))
+                ch_num = (meta or {}).get("chapter_number", (meta or {}).get("number", "?"))
+                chapters.append((f"Chapter {ch_num}: {ch_title}", f, prose))
+            if chapters:
+                stories[story_name] = chapters
+
+    # 2. Main manuscript chapters in story/chapters/
+    chapters_dir = project_dir / "story" / "chapters"
+    if chapters_dir.exists():
+        chapters = []
+        for f in sorted(chapters_dir.glob("*.md")):
+            if f.name.startswith("_"):
+                continue
+            if specific_chapter and f.name != specific_chapter and f.stem != specific_chapter:
+                continue
+            meta, body = parse_frontmatter(f)
+            prose = _strip_markdown(body)
+            if not prose.strip():
+                continue
+            ch_title = (meta or {}).get("title", f.stem)
+            ch_num = (meta or {}).get("number", "?")
+            chapters.append((f"Chapter {ch_num}: {ch_title}", f, prose))
+        if chapters:
+            stories["main-manuscript"] = chapters
+
+    if not stories and not include_entities:
+        print("  No prose content found to analyse.")
+        return
+
+    all_outliers = []
+
+    for story_name, chapters in stories.items():
+        print(f"═══ Story: {story_name} {'═' * max(1, 55 - len(story_name))}\n")
+
+        story_all_text = []
+        chapter_metrics = []
+        chapter_para_outliers = []
+
+        for ch_label, ch_file, prose in chapters:
+            metrics = _compute_readability(prose)
+            if not metrics:
+                print(f"  {ch_label} — too short to analyse\n")
+                continue
+
+            story_all_text.append(prose)
+            chapter_metrics.append((ch_label, metrics))
+            wc = metrics["word_count"]
+            rt = metrics["reading_time_min"]
+
+            print(f"  {ch_label} ({wc:,} words, ~{rt:.0f} min read)")
+            print(f"    Flesch-Kincaid Grade:  {metrics['fk_grade']:.1f}")
+            print(f"    Flesch Reading Ease:   {metrics['reading_ease']:.1f}  ({_reading_ease_label(metrics['reading_ease'])})")
+            print(f"    Gunning Fog:           {metrics['gunning_fog']:.1f}")
+            print(f"    Coleman-Liau:          {metrics['coleman_liau']:.1f}")
+            print(f"    Avg sentence length:   {metrics['avg_sentence_len']:.1f} words")
+            print(f"    Avg word length:        {metrics['avg_word_len']:.1f} chars")
+            print()
+
+            # Paragraph-level analysis
+            paragraphs = _split_paragraphs(prose)
+            para_grades = []
+            para_metrics = []
+            for p in paragraphs:
+                pm = _compute_readability(_strip_markdown(p))
+                if pm:
+                    para_grades.append(pm["fk_grade"])
+                    para_metrics.append(pm)
+                else:
+                    para_grades.append(None)
+                    para_metrics.append(None)
+
+            valid_grades = [g for g in para_grades if g is not None]
+            if len(valid_grades) >= 3:
+                outliers = _find_outliers(valid_grades)
+                valid_idx_map = []
+                vi = 0
+                for i, g in enumerate(para_grades):
+                    if g is not None:
+                        valid_idx_map.append(i)
+                        vi += 1
+                for oi, val, mu, sd, label in outliers:
+                    real_idx = valid_idx_map[oi]
+                    msg = f"⚠ Paragraph {real_idx + 1} (grade {val:.1f}): {label} than chapter average ({mu:.1f} ± {sd:.1f})"
+                    chapter_para_outliers.append(msg)
+                    all_outliers.append(f"  [{story_name}] {ch_label}: {msg}")
+                    if verbose:
+                        print(f"    {msg}")
+
+                if verbose:
+                    # Page-level analysis
+                    pages = _split_pages(prose)
+                    page_grades = []
+                    for page in pages:
+                        pm = _compute_readability(page)
+                        if pm:
+                            page_grades.append(pm["fk_grade"])
+                    if len(page_grades) >= 3:
+                        page_outliers = _find_outliers(page_grades)
+                        for oi, val, mu, sd, label in page_outliers:
+                            print(f"    ⚠ Page {oi + 1} (grade {val:.1f}): {label} than chapter average ({mu:.1f} ± {sd:.1f})")
+
+            if verbose and chapter_para_outliers:
+                print()
+
+        if not chapter_metrics:
+            print()
+            continue
+
+        # Story summary
+        combined_prose = "\n\n".join(story_all_text)
+        story_metrics = _compute_readability(combined_prose)
+        if story_metrics:
+            print(f"  ─── Story Summary {'─' * 48}")
+            print(f"    Overall Grade Level:   {story_metrics['fk_grade']:.1f}")
+            print(f"    Reading Ease:          {story_metrics['reading_ease']:.1f}")
+            print(f"    Target Audience:       {_target_audience(story_metrics['fk_grade'])}")
+            print(f"    Total Words:           {story_metrics['word_count']:,}")
+            print(f"    Reading Time:          ~{story_metrics['reading_time_min']:.0f} minutes")
+            print()
+
+        # Flag chapters that deviate from story average
+        if len(chapter_metrics) >= 3:
+            ch_grades = [m["fk_grade"] for _, m in chapter_metrics]
+            ch_outliers = _find_outliers(ch_grades)
+            for oi, val, mu, sd, label in ch_outliers:
+                ch_label = chapter_metrics[oi][0]
+                msg = f"  ⚠ {ch_label} (grade {val:.1f}): {label} than story average ({mu:.1f} ± {sd:.1f})"
+                print(msg)
+                all_outliers.append(f"  [{story_name}] {msg.strip()}")
+
+        print()
+
+    # Entity prose analysis
+    if include_entities:
+        entities = collect_entities(project_dir)
+        entity_metrics = []
+
+        print(f"═══ Entity Prose {'═' * 51}\n")
+
+        for etype in ENTITY_TYPES:
+            for slug, data in sorted(entities.get(etype, {}).items()):
+                body = data.get("body", "").strip()
+                if not body:
+                    continue
+                prose = _strip_markdown(body)
+                metrics = _compute_readability(prose)
+                if not metrics:
+                    continue
+                entity_metrics.append((etype, slug, metrics))
+                if verbose:
+                    print(f"  {etype}/{slug} ({metrics['word_count']} words)")
+                    print(f"    Grade: {metrics['fk_grade']:.1f}  |  Ease: {metrics['reading_ease']:.1f}  |  Fog: {metrics['gunning_fog']:.1f}")
+
+        if entity_metrics:
+            grades = [m["fk_grade"] for _, _, m in entity_metrics]
+            if len(grades) >= 3:
+                mu = statistics.mean(grades)
+                sd = statistics.stdev(grades)
+                print(f"\n  Entity prose average grade: {mu:.1f} ± {sd:.1f}")
+                outliers = _find_outliers(grades)
+                for oi, val, mu2, sd2, label in outliers:
+                    etype, slug, _ = entity_metrics[oi]
+                    msg = f"  ⚠ {etype}/{slug} (grade {val:.1f}): {label} than entity average ({mu2:.1f} ± {sd2:.1f})"
+                    print(msg)
+                    all_outliers.append(msg)
+        elif not verbose:
+            print("  No entity prose long enough to analyse.")
+
+        print()
+
+    # Outlier summary
+    if all_outliers:
+        print(f"═══ Outliers {'═' * 55}\n")
+        for o in all_outliers:
+            print(o)
+        print()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -4776,6 +5125,13 @@ def main():
     p_fix = subparsers.add_parser("fix", help="Auto-fix consistency issues")
     p_fix.add_argument("--project", "-p", help="Project path", default=None)
 
+    # readability
+    p_read = subparsers.add_parser("readability", help="Analyse prose readability")
+    p_read.add_argument("--project", help="Project path", default=None)
+    p_read.add_argument("--entities", action="store_true", help="Include entity body text")
+    p_read.add_argument("--verbose", action="store_true", help="Show paragraph-level detail")
+    p_read.add_argument("--chapter", help="Specific chapter file to analyse", default=None)
+
     args = parser.parse_args()
 
     if not args.command:
@@ -4806,6 +5162,7 @@ def main():
         "campaign": cmd_campaign,
         "wizard": cmd_wizard,
         "fix": cmd_fix,
+        "readability": cmd_readability,
     }
 
     if args.command == "add":

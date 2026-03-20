@@ -270,8 +270,8 @@ def _extract_visual_details(machine_desc: str) -> str:
 
 # ─── Image cache ─────────────────────────────────────────────────────────────
 
-def _cache_dir(project_dir: Path) -> Path:
-    cache = project_dir / "output" / "images"
+def _cache_dir(project_dir: Path, subdir: str = "output/images") -> Path:
+    cache = project_dir / subdir
     cache.mkdir(parents=True, exist_ok=True)
     return cache
 
@@ -280,9 +280,9 @@ def _prompt_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode()).hexdigest()[:16]
 
 
-def get_cached_image(project_dir: Path, entity_slug: str, prompt: str) -> Optional[str]:
+def get_cached_image(project_dir: Path, entity_slug: str, prompt: str, subdir: str = "output/images") -> Optional[str]:
     """Check if a cached image exists. Returns filename or None."""
-    cache = _cache_dir(project_dir)
+    cache = _cache_dir(project_dir, subdir)
     phash = _prompt_hash(prompt)
     filename = f"{entity_slug}_{phash}.png"
     if (cache / filename).exists():
@@ -326,6 +326,7 @@ def _worker_loop():
             width=job.get("width", DEFAULT_WIDTH),
             height=job.get("height", DEFAULT_HEIGHT),
             style=job.get("style", "default"),
+            cache_subdir=job.get("cache_subdir", "output/images"),
         )
 
         with _jobs_lock:
@@ -437,6 +438,7 @@ def _generate_sync(
     width: int = DEFAULT_WIDTH,
     height: int = DEFAULT_HEIGHT,
     style: str = "default",
+    cache_subdir: str = "output/images",
 ):
     """Synchronous image generation. Returns (success, filename_or_error)."""
     if not _check_mlx():
@@ -475,7 +477,7 @@ def _generate_sync(
             except ValueError:
                 pass
 
-        cache = _cache_dir(project_dir)
+        cache = _cache_dir(project_dir, cache_subdir)
         phash = _prompt_hash(prompt)
         filename = f"{entity_slug}_{phash}.png"
         image.save(path=str(cache / filename))
@@ -507,6 +509,7 @@ def submit_job(
     entity_meta: Optional[dict] = None,
     project_config: Optional[dict] = None,
     style: str = "default",
+    cache_subdir: str = "output/images",
 ) -> dict:
     """Submit an image generation job. Returns immediately with a job_id."""
     # Enrich prompt with style and context
@@ -514,7 +517,7 @@ def submit_job(
 
     # Check cache (enriched prompt is the cache key)
     if not force:
-        cached = get_cached_image(project_dir, entity_slug, enriched)
+        cached = get_cached_image(project_dir, entity_slug, enriched, subdir=cache_subdir)
         if cached:
             job_id = str(uuid.uuid4())[:8]
             job = {
@@ -571,6 +574,7 @@ def submit_job(
         "steps": steps,
         "width": width,
         "height": height,
+        "cache_subdir": cache_subdir,
     }
 
     with _jobs_lock:

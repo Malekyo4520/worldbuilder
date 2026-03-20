@@ -138,7 +138,7 @@ regional_defaults:
 
 ## Features
 
-- **22 CLI commands** — init, add, validate, compile, stats, timeline, graph, query, list, history, crossref, flags, edit, geography, generate, write, wizard, and more
+- **25 CLI commands** — init, add, validate, compile, stats, timeline, graph, query, list, history, crossref, flags, edit, geography, generate, write, story, campaign, readability, wizard, and more
 - **11 entity types** with YAML frontmatter schemas and Markdown prose
 - **Triple descriptions** — `machine` (structured truth), `human` (styled prose), `image_prompt` (illustration prompt) per entity
 - **Graph-based validation** — dangling reference detection, bidirectional relationship enforcement, timeline consistency, parent age rules, faction completeness
@@ -155,6 +155,9 @@ regional_defaults:
 - **Web viewer** — entity browser, timeline visualization, geography view, relationship graphs
 - **MCP server** — Claude Code integration via stdio transport
 - **Genre presets** — fantasy, sci-fi, and campaign presets with pre-configured world flags and style defaults
+- **In-universe short stories** — `story` command generates context-aware prompts for writing short fiction anchored to world events or time periods
+- **D&D campaign generation** — `campaign` command generates one-shot or multi-session 5e campaign prompts set in your world
+- **Readability analysis** — deterministic prose quality scoring (Flesch-Kincaid, Gunning Fog, Coleman-Liau) at paragraph, page, chapter, and story level with outlier detection
 
 ## Entity Types
 
@@ -176,7 +179,7 @@ regional_defaults:
 
 Three entry points, one source of truth:
 
-- **`scripts/worldbuilder.py`** is the CLI and the canonical implementation. All logic lives here (~4800 lines). The other entry points delegate to it.
+- **`scripts/worldbuilder.py`** is the CLI and the canonical implementation. All logic lives here (~5200 lines). The other entry points delegate to it.
 - **`mcp_server/worldbuilder_mcp.py`** is a thin MCP wrapper that shells out to the CLI via subprocess. It exposes the same commands as tools for Claude Code.
 - **`webapp/app.py`** is a Flask server that reads project files directly and provides a browser-based viewer with API endpoints.
 
@@ -189,7 +192,7 @@ Projects are directories containing a `project.yaml` file. By convention they li
 ```
 WorldBuilder/
 ├── scripts/
-│   ├── worldbuilder.py       # CLI (main entry point, ~4800 lines)
+│   ├── worldbuilder.py       # CLI (main entry point, ~5200 lines)
 │   └── graph.py              # Graph-based integrity layer
 ├── webapp/
 │   ├── app.py                # Flask web UI + API
@@ -245,6 +248,69 @@ T-shirt sizes control entity counts and world complexity:
 - **World flag compliance** — if your world has `gunpowder: false`, no entity should reference firearms
 
 The graph layer provides structural analysis on top of the field-level checks — detecting isolated nodes, asymmetric edges, and unreachable subgraphs.
+
+## Readability Analysis
+
+`readability` runs deterministic prose quality metrics against your stories and chapters using [textstat](https://pypi.org/project/textstat/).
+
+```bash
+# Analyse all stories and chapters in a project
+uv run python scripts/worldbuilder.py readability --project worlds/my-world
+
+# Verbose mode — paragraph-level detail with outlier flagging
+uv run python scripts/worldbuilder.py readability --project worlds/my-world --verbose
+
+# Include entity body text
+uv run python scripts/worldbuilder.py readability --project worlds/my-world --entities
+```
+
+Metrics computed at paragraph, page (~250 words), chapter, and story level:
+
+| Metric | What it measures |
+|--------|-----------------|
+| Flesch-Kincaid Grade Level | US school grade required to understand the text |
+| Flesch Reading Ease | 0-100 scale (higher = easier to read) |
+| Gunning Fog Index | Years of formal education needed |
+| Coleman-Liau Index | Character-based readability estimate |
+| Avg sentence length | Words per sentence |
+| Avg word length | Characters per word |
+
+Outlier detection flags paragraphs or chapters that deviate more than 1.5 standard deviations from the mean grade level — useful for catching unintentional difficulty spikes (dense exposition) or drops (dialogue-heavy sections that might need grounding).
+
+## In-Universe Short Stories
+
+`story` generates a context-aware prompt for writing standalone short fiction set in your world:
+
+```bash
+# Anchor to a specific event
+uv run python scripts/worldbuilder.py story --event the-great-war --project worlds/my-world
+
+# Anchor to a time period
+uv run python scripts/worldbuilder.py story --era 2A --start-year 200 --end-year 250 --project worlds/my-world
+
+# With options
+uv run python scripts/worldbuilder.py story --event first-contact \
+  --protagonist kael-ashford --subgenre hard-sf --rating adult \
+  --chapters 8 --words 20000 --project worlds/my-world
+```
+
+The prompt includes all world context filtered to the relevant time period — which characters are alive, which factions are active, what has happened before and after (for dramatic irony).
+
+## D&D Campaign Generation
+
+`campaign` generates a 5e campaign module prompt set in your world:
+
+```bash
+# One-shot set in the present day
+uv run python scripts/worldbuilder.py campaign --present --location tavern-district \
+  --length one-shot --level 3-5 --project worlds/my-world
+
+# Short campaign during a historical event
+uv run python scripts/worldbuilder.py campaign --event the-siege \
+  --length short --level 5-8 --themes "survival, betrayal" --project worlds/my-world
+```
+
+Output includes session structure, NPC stat blocks, encounter tables, faction dynamics, rewards, and player handouts — all consistent with your established world.
 
 ## API Endpoints
 

@@ -32,7 +32,7 @@ There is no test suite, no linter config, no CI/CD. This is a gap to be aware of
 
 ### Three entry points, one source of truth
 
-- **`scripts/worldbuilder.py`** (~4800 lines) — the CLI. All logic lives here: 22 commands covering init, add, validate, compile, edit, write, wizard, etc.
+- **`scripts/worldbuilder.py`** (~5200 lines) — the CLI. All logic lives here: 25 commands covering init, add, validate, compile, edit, write, story, campaign, readability, wizard, etc.
 - **`mcp_server/worldbuilder_mcp.py`** (~1000 lines) — thin MCP wrapper that shells out to the CLI via subprocess. Not independent logic.
 - **`webapp/app.py`** — Flask UI for browsing projects, image generation, voice generation.
 - **`webapp/imagegen.py`** — Z-Image-Turbo image generation via mflux (MLX). LoRA-based style presets (photorealistic, anime, cartoon). Pre-quantized 4-bit model from `filipstrand/Z-Image-Turbo-mflux-4bit`.
