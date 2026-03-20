@@ -13,10 +13,12 @@ build/
 
 # Generated content
 output/
-logs/
+logs/*
+!logs/.gitkeep
 
 # User projects (create your worlds here, but they're yours)
-worlds/
+worlds/*
+!worlds/.gitkeep
 
 # OS
 .DS_Store
