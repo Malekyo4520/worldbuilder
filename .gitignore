@@ -12,7 +12,7 @@ build/
 .env.*
 
 # Generated content
-output/
+/output/
 logs/*
 !logs/.gitkeep
 
