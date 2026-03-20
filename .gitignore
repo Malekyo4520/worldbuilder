@@ -13,6 +13,7 @@ build/
 
 # Generated content
 /output/
+wizard-yolo-*.md
 logs/*
 !logs/.gitkeep
 
