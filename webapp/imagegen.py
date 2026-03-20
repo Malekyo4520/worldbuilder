@@ -14,10 +14,7 @@ Requirements (macOS Apple Silicon only):
 """
 
 import hashlib
-import os
 import random
-import re
-import sys
 import threading
 import time
 import uuid
@@ -456,7 +453,8 @@ def _generate_sync(
             seed = random.randint(0, 2**31 - 1)
 
         style_label = STYLE_PRESETS.get(style, {}).get("label", style)
-        print(f"[imagegen] Generating: {entity_slug} ({steps} steps, {width}x{height}, seed={seed}, style={style_label})")
+        print(f"[imagegen] Generating: {entity_slug} "
+              f"({steps} steps, {width}x{height}, seed={seed}, style={style_label})")
         t0 = time.time()
 
         # Progress callback (step counter only — VAE decode preview was OOM-ing)

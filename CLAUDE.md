@@ -24,9 +24,14 @@ python mcp_server/worldbuilder_mcp.py
 
 Dependencies managed via `uv` (see `pyproject.toml`). Core: `pyyaml`, `flask`. Voice generation (optional): `uv sync --extra voicegen` — `mlx-audio`, `soundfile`, `numpy`. Image generation (optional): `uv sync --extra imagegen` — `mflux`. Both media backends are Apple Silicon only (MLX). Install both with `uv sync --extra all-media`.
 
-## No Tests, No Linting
+## Testing & Linting
 
-There is no test suite, no linter config, no CI/CD. This is a gap to be aware of.
+```bash
+uv run pytest tests/ -v       # 82 unit tests — pure functions, no external deps
+uv run ruff check .           # lint (E/F/W/I rules, 120 char line length)
+```
+
+Tests cover: `slugify`, `WorldDate`, `parse_frontmatter`, name index/ref resolution, `enrich_prompt`, `build_voice_instruct`, cache hit/miss. No CI/CD yet.
 
 ## Architecture
 
